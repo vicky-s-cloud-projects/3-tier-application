@@ -169,3 +169,9 @@ override.tf
 override.tf.json
 terraform.tfvars
 *.tfvars
+
+terraform/.terraform.lock.hcl
+terraform/aws-auth.yaml
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
