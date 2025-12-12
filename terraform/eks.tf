@@ -1,6 +1,6 @@
 module "eks" {
-  source          = "terraform-aws-modules/eks/aws"
-  version         = "20.13.0"
+  source  = "terraform-aws-modules/eks/aws"
+  version = "20.13.0"
 
   cluster_name    = "${var.project_name}-cluster"
   cluster_version = "1.29"
@@ -9,35 +9,47 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   enable_irsa = true
-  manage_aws_auth = true  # module writes aws-auth configmap
 
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
-  cluster_endpoint_public_access_cidrs = ["122.177.241.85/32"]
+  cluster_endpoint_public_access_cidrs = ["122.177.247.180/32"]
 
   eks_managed_node_groups = {
-    default = {
+    on_demand = {
       instance_types = ["t3.medium"]
       desired_size   = 1
       max_size       = 2
       min_size       = 1
-      subnet_ids     = module.vpc.private_subnets 
-    }
-  }
+      subnet_ids     = module.vpc.private_subnets
 
-  spot = {
-      desired_capacity = 2
-      max_capacity     = 5
-      min_capacity     = 0
-      instance_types   = ["t3.small","t3.medium"]
-      capacity_type    = "SPOT"
       tags = {
-        "lifecycle" = "spot"
+        lifecycle = "on-demand"
       }
-      # labels can be used by pod/node selectors
+    }
+
+    spot = {
+      instance_types = ["t3.small", "t3.medium"]
+      capacity_type  = "SPOT"
+
+      desired_size = 1
+      min_size     = 0
+      max_size     = 3
+
+      subnet_ids = module.vpc.private_subnets
+
       labels = {
         "node.kubernetes.io/lifecycle" = "spot"
       }
+
+      tags = {
+        lifecycle = "spot"
+      }
+    }
+  }
+
+  tags = {
+    project = var.project_name
+    env     = "dev"
   }
 }

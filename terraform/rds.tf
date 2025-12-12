@@ -28,16 +28,16 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_db_instance" "postgres" {
-  identifier              = "${var.project_name}-db"
-  allocated_storage       = 20
-  engine                  = "postgres"
-  engine_version          = "15.15"
-  instance_class          = "db.t3.micro"
-  username                = var.db_username
-  password                = var.db_password
-  db_subnet_group_name    = aws_db_subnet_group.postgres.name
-  vpc_security_group_ids  = [aws_security_group.rds.id]
-  skip_final_snapshot     = true
-  publicly_accessible     = false
+  identifier             = "${var.project_name}-db"
+  allocated_storage      = 20
+  engine                 = "postgres"
+  engine_version         = "15.15"
+  instance_class         = "db.t3.micro"
+  username               = var.db_username
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.postgres.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  skip_final_snapshot    = true
+  publicly_accessible    = false
 }
 

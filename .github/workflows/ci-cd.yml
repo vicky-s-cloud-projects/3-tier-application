@@ -1,86 +1,62 @@
-name: CI/CD - Build & Deploy to EKS
+name: CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
 
 permissions:
-  id-token: write      # required for OIDC
+  id-token: write
   contents: read
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
-
+    outputs:
+      image: ${{ steps.set-image.outputs.image }}
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      ###############################################################
-      # 1. Configure AWS credentials using OIDC
-      ###############################################################
-      - name: Configure AWS Credentials (OIDC)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ap-south-1
 
-      ###############################################################
-      # 2. Login to ECR
-      ###############################################################
-      - name: Login to Amazon ECR
+      - name: Log in to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      ###############################################################
-      # 3. Build Docker image
-      ###############################################################
-      - name: Build Docker image
-        run: |
-          IMAGE_TAG="${{ github.sha }}"
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          docker build -t ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG .
-
-      ###############################################################
-      # 4. Tag & Push to ECR
-      ###############################################################
-      - name: Tag & Push image to ECR
+      - name: Build & Push image
+        id: build
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION=${{ secrets.AWS_REGION }}
-          IMAGE_TAG=${{ env.IMAGE_TAG }}
+          ECR_REPO="${ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/${{ env.ECR_REPO_NAME:-django-ecom }}"
+          IMAGE="$ECR_REPO:${{ github.sha }}"
+          docker build -t $IMAGE .
+          docker push $IMAGE
+          echo "::set-output name=image::$IMAGE"
+      - name: Set image output
+        id: set-image
+        run: echo "::set-output name=image::${{ steps.build.outputs.image }}"
 
-          ECR_URL="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY }}"
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-south-1
 
-          docker tag ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG $ECR_URL:$IMAGE_TAG
-          docker push $ECR_URL:$IMAGE_TAG
-
-          echo "IMAGE_URL=$ECR_URL:$IMAGE_TAG" >> $GITHUB_ENV
-
-      ###############################################################
-      # 5. Update kubeconfig for EKS
-      ###############################################################
-      - name: Update kubeconfig for EKS
+      - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig \
-            --region ${{ secrets.AWS_REGION }} \
-            --name ${{ secrets.CLUSTER_NAME }}
+          aws eks update-kubeconfig --region ap-south-1 --name ${{ secrets.CLUSTER_NAME }}
 
-      ###############################################################
-      # 6. Deploy to Kubernetes
-      ###############################################################
-      - name: Deploy to EKS via kubectl
+      - name: Deploy manifests
+        env:
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
-          kubectl set image deployment/django-web \
-            web=${{ env.IMAGE_URL }} \
-            -n ecommerce
-
-          kubectl rollout status deployment/django-web -n ecommerce
-
-      ###############################################################
-      # 7. Show cluster status for debugging
-      ###############################################################
-      - name: Show cluster resources
-        run: |
-          kubectl get nodes -o wide
-          kubectl get pods -n ecommerce -o wide
-          kubectl get svc -n ecommerce
+          # replace image in k8s/deployment file and apply
+          kubectl set image -n default deployment/django-web web=$IMAGE --record
+          kubectl rollout status -n default deployment/django-web
